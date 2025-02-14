@@ -1,0 +1,55 @@
+FROM ubuntu:22.04
+# Define build-time arguments
+ARG GRAYLOG_SERVER="http://default-graylog/api/"
+ARG GRAYLOG_SIDECAR_NAME="default-sidecar"
+ARG GRAYLOG_TOKEN="default-token"
+
+# Set environment variables (they will be overridden at runtime if provided)
+ENV GRAYLOG_SERVER=$GRAYLOG_SERVER
+ENV GRAYLOG_SIDECAR_NAME=$GRAYLOG_SIDECAR_NAME
+ENV GRAYLOG_TOKEN=$GRAYLOG_TOKEN
+
+
+# Set environment variables to avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install dependencies
+RUN apt-get update && \
+    apt-get install -y wget gnupg && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | apt-key add - && \
+    echo "deb https://artifacts.elastic.co/packages/7.x/apt stable main" | \
+    tee -a /etc/apt/sources.list.d/elastic-7.x.list
+# Add Graylog Sidecar repository
+RUN wget https://packages.graylog2.org/repo/packages/graylog-sidecar-repository_1-5_all.deb && \
+    dpkg -i graylog-sidecar-repository_1-5_all.deb && \
+    apt-get update
+
+# Install Graylog Sidecar and Filebeat
+RUN apt-get install -y graylog-sidecar filebeat && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create directories for configuration and logs
+RUN mkdir -p /etc/graylog/sidecar /var/log/graylog-sidecar
+
+# Create the YML file inside the image
+RUN echo "server_url: \"\$GRAYLOG_SERVER\"" > /etc/graylog/sidecar/sidecar.yml && \
+    echo "node_id: \"\$GRAYLOG_SIDECAR_NAME\"" >> /etc/graylog/sidecar/sidecar.yml && \
+    echo "node_name: \"\$GRAYLOG_SIDECAR_NAME\"" >> /etc/graylog/sidecar/sidecar.yml && \
+    echo "server_api_token: \"\$GRAYLOG_TOKEN\"" >> /etc/graylog/sidecar/sidecar.yml && \
+    echo "update_interval: 10" >> /etc/graylog/sidecar/sidecar.yml && \
+    echo "tls_skip_verify: true" >> /etc/graylog/sidecar/sidecar.yml && \
+    echo "send_status: true" >> /etc/graylog/sidecar/sidecar.yml && \
+    echo "list_log_files: []" >> /etc/graylog/sidecar/sidecar.yml && \
+    echo "cache_path: \"/var/cache/graylog-sidecar\"" >> /etc/graylog/sidecar/sidecar.yml && \
+    echo "log_path: \"/var/log/graylog-sidecar\"" >> /etc/graylog/sidecar/sidecar.yml && \
+    echo "collector_configuration_dir: \"/etc/graylog/sidecar/collectors\"" >> /etc/graylog/sidecar/sidecar.yml
+
+# Ensure envsubst is available (install it if needed)
+RUN apt-get update && apt-get install -y gettext-base
+
+# Run envsubst at startup to replace variables in the YML file
+CMD envsubst < /etc/graylog/sidecar/sidecar.yml > /etc/graylog/sidecar/sidecar.yml.tmp && \
+    mv /etc/graylog/sidecar/sidecar.yml.tmp /etc/graylog/sidecar/sidecar.yml && \
+    graylog-sidecar

@@ -1,0 +1,27 @@
+services:
+  graylog-sidecar:
+    image: graylog-sidecar
+    build:
+      context: .
+      dockerfile: docker/Dockerfile_graylog-sidecar
+    environment:
+        - GRAYLOG_TOKEN=${GRAYLOG_TOKEN}
+        - GRAYLOG_SIDECAR_NAME=${GRAYLOG_SIDECAR_NAME}
+        - GRAYLOG_SERVER=${GRAYLOG_SERVER}
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    restart: unless-stopped
+    ports:
+      - 514:514
+      - 12201:12201
+      - 24224:24224
+      - 5044:5044 
+    networks:
+      example-internal-network:
+        ipv4_address: ${LOGGER_IP}
+
+
+
+networks:
+  example-internal-network:
+    name: example_internal_network

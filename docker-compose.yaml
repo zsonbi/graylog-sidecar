@@ -10,6 +10,7 @@ services:
         - GRAYLOG_SERVER=${GRAYLOG_SERVER}
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./configs/graylog-certs/:/certs/:ro
     restart: unless-stopped
     ports:
       - 514:514

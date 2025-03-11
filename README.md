@@ -16,3 +16,4 @@ openssl genrsa -out client.key 2048
 openssl req -sha512 -new -key client.key -out client.csr -config client.conf
 openssl x509 -days 36500 -req -sha512 -in client.csr -CAserial serial -CA ca.crt -CAkey ca.key -out client.crt -extensions v3_req -extensions usr_cert  -extfile client.conf
 ```
+

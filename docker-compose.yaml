@@ -14,9 +14,6 @@ services:
     restart: unless-stopped
     ports:
       - 514:514
-      - 12201:12201
-      - 24224:24224
-      - 5044:5044 
     networks:
       example-internal-network:
         ipv4_address: ${LOGGER_IP}

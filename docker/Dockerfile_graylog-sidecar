@@ -1,55 +1,67 @@
 FROM ubuntu:22.04
-# Define build-time arguments
-ARG GRAYLOG_SERVER="http://default-graylog/api/"
-ARG GRAYLOG_SIDECAR_NAME="default-sidecar"
-ARG GRAYLOG_TOKEN="default-token"
 
-# Set environment variables (they will be overridden at runtime if provided)
-ENV GRAYLOG_SERVER=$GRAYLOG_SERVER
-ENV GRAYLOG_SIDECAR_NAME=$GRAYLOG_SIDECAR_NAME
-ENV GRAYLOG_TOKEN=$GRAYLOG_TOKEN
+# The repository bootstrap is 1-6, but the official Sidecar package channel
+# currently publishes 1.5.x packages. Override this ARG when a newer package exists.
+ARG GRAYLOG_SIDECAR_REPOSITORY_VERSION=1-6
+ARG GRAYLOG_SIDECAR_VERSION=1.5.4-1
+ARG FILEBEAT_VERSION=7.17.29
 
-
-# Set environment variables to avoid interactive prompts during package installation
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install dependencies
-RUN apt-get update && \
-    apt-get install -y wget gnupg && \
+RUN set -eux; \
+    export DEBIAN_FRONTEND=noninteractive; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl gnupg; \
+    curl -fsSL https://artifacts.elastic.co/GPG-KEY-elasticsearch \
+        | gpg --dearmor -o /usr/share/keyrings/elastic-archive-keyring.gpg; \
+    echo "deb [signed-by=/usr/share/keyrings/elastic-archive-keyring.gpg] https://artifacts.elastic.co/packages/7.x/apt stable main" \
+        > /etc/apt/sources.list.d/elastic-7.x.list; \
+    curl -fsSLO "https://downloads.graylog.org/repo/packages/graylog-sidecar-repository_${GRAYLOG_SIDECAR_REPOSITORY_VERSION}_all.deb"; \
+    dpkg -i "graylog-sidecar-repository_${GRAYLOG_SIDECAR_REPOSITORY_VERSION}_all.deb"; \
+    rm "graylog-sidecar-repository_${GRAYLOG_SIDECAR_REPOSITORY_VERSION}_all.deb"; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        "graylog-sidecar=${GRAYLOG_SIDECAR_VERSION}" \
+        "filebeat=${FILEBEAT_VERSION}"; \
+    ln -sf /usr/lib/graylog-sidecar/auditbeat /usr/bin/auditbeat; \
+    mkdir -p \
+        /etc/graylog/sidecar/collectors \
+        /var/cache/graylog-sidecar \
+        /var/log/graylog-sidecar; \
+    apt-get purge -y --auto-remove curl gnupg; \
     rm -rf /var/lib/apt/lists/*
 
-RUN wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | apt-key add - && \
-    echo "deb https://artifacts.elastic.co/packages/7.x/apt stable main" | \
-    tee -a /etc/apt/sources.list.d/elastic-7.x.list
-# Add Graylog Sidecar repository
-RUN wget https://packages.graylog2.org/repo/packages/graylog-sidecar-repository_1-5_all.deb && \
-    dpkg -i graylog-sidecar-repository_1-5_all.deb && \
-    apt-get update
+RUN set -eux; \
+    { \
+        echo '#!/bin/sh'; \
+        echo 'set -eu'; \
+        echo; \
+        echo ': "${GRAYLOG_SERVER:=http://default-graylog/api/}"'; \
+        echo ': "${GRAYLOG_SIDECAR_NAME:=default-sidecar}"'; \
+        echo ': "${GRAYLOG_TOKEN:=default-token}"'; \
+        echo ': "${GRAYLOG_UPDATE_INTERVAL:=10}"'; \
+        echo ': "${GRAYLOG_TLS_SKIP_VERIFY:=true}"'; \
+        echo; \
+        echo 'mkdir -p \'; \
+        echo '    /etc/graylog/sidecar/collectors \'; \
+        echo '    /var/cache/graylog-sidecar \'; \
+        echo '    /var/log/graylog-sidecar'; \
+        echo; \
+        echo 'cat > /etc/graylog/sidecar/sidecar.yml <<YAML'; \
+        echo 'server_url: "${GRAYLOG_SERVER}"'; \
+        echo 'node_id: "${GRAYLOG_SIDECAR_NAME}"'; \
+        echo 'node_name: "${GRAYLOG_SIDECAR_NAME}"'; \
+        echo 'server_api_token: "${GRAYLOG_TOKEN}"'; \
+        echo 'update_interval: ${GRAYLOG_UPDATE_INTERVAL}'; \
+        echo 'tls_skip_verify: ${GRAYLOG_TLS_SKIP_VERIFY}'; \
+        echo 'send_status: true'; \
+        echo 'list_log_files: []'; \
+        echo 'cache_path: "/var/cache/graylog-sidecar"'; \
+        echo 'log_path: "/var/log/graylog-sidecar"'; \
+        echo 'collector_configuration_dir: "/etc/graylog/sidecar/collectors"'; \
+        echo 'YAML'; \
+        echo; \
+        echo 'exec "$@"'; \
+    } > /usr/local/bin/docker-entrypoint; \
+    chmod +x /usr/local/bin/docker-entrypoint
 
-# Install Graylog Sidecar and Filebeat
-RUN apt-get install -y graylog-sidecar filebeat && \
-    rm -rf /var/lib/apt/lists/*
-
-# Create directories for configuration and logs
-RUN mkdir -p /etc/graylog/sidecar /var/log/graylog-sidecar
-
-# Create the YML file inside the image
-RUN echo "server_url: \"\$GRAYLOG_SERVER\"" > /etc/graylog/sidecar/sidecar.yml && \
-    echo "node_id: \"\$GRAYLOG_SIDECAR_NAME\"" >> /etc/graylog/sidecar/sidecar.yml && \
-    echo "node_name: \"\$GRAYLOG_SIDECAR_NAME\"" >> /etc/graylog/sidecar/sidecar.yml && \
-    echo "server_api_token: \"\$GRAYLOG_TOKEN\"" >> /etc/graylog/sidecar/sidecar.yml && \
-    echo "update_interval: 10" >> /etc/graylog/sidecar/sidecar.yml && \
-    echo "tls_skip_verify: true" >> /etc/graylog/sidecar/sidecar.yml && \
-    echo "send_status: true" >> /etc/graylog/sidecar/sidecar.yml && \
-    echo "list_log_files: []" >> /etc/graylog/sidecar/sidecar.yml && \
-    echo "cache_path: \"/var/cache/graylog-sidecar\"" >> /etc/graylog/sidecar/sidecar.yml && \
-    echo "log_path: \"/var/log/graylog-sidecar\"" >> /etc/graylog/sidecar/sidecar.yml && \
-    echo "collector_configuration_dir: \"/etc/graylog/sidecar/collectors\"" >> /etc/graylog/sidecar/sidecar.yml
-
-# Ensure envsubst is available (install it if needed)
-RUN apt-get update && apt-get install -y gettext-base
-
-# Run envsubst at startup to replace variables in the YML file
-CMD envsubst < /etc/graylog/sidecar/sidecar.yml > /etc/graylog/sidecar/sidecar.yml.tmp && \
-    mv /etc/graylog/sidecar/sidecar.yml.tmp /etc/graylog/sidecar/sidecar.yml && \
-    graylog-sidecar
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint"]
+CMD ["graylog-sidecar"]
